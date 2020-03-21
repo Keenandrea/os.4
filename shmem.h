@@ -9,9 +9,14 @@ typedef struct
 
 typedef struct
 {
-    int processclass;
+    int pclass;
     int pids;
     int fpid;
+    int priority;
+    simclock smcputime;
+    simclock smsystime;
+    simclock smblktime;
+    simclock smwaittime;
 } pcblock;
 
 typedef struct
