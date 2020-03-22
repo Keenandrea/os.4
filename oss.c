@@ -64,7 +64,8 @@ void clockinit();
 void pscheduler();
 void timeinc(simclock *, int);
 int findaseat();
-void overlay(int, int);
+int bitvector(int);
+void overlay(int);
 void clockinc(simclock *, int, int);
 int uspsdispatch(int, msg *);
 /* END ================================================================= */
@@ -106,6 +107,32 @@ int main(int argc, char *argv[])
 return 0;
 }
 /* END ================================================================= */
+
+						/* guard against a
+					   	   long log file*/
+						// if(lcount < 10000)
+						// {
+						// 	fprintf(outlog, "\n[oss]: [blocked] -> [pid: %i] [local pid: %i] [time: %is:%ins] [time as blocked: %ins]", smseg->pctable[active].pid, smseg->pctable[active].fpid, smseg->smtime.secs, smseg->smtime.nans, servicetime);
+						// 	lcount++;
+						// }
+					    // else if(lcount > 10000 && logext == 0) 
+						// {
+						// 	fprintf(stderr, "\n[oss]: warning: log write limit exceeded. terminating write\n");
+						// 	logext = 1;
+						// }
+						// else if(logext == 1 && logwrn == 0)
+						// {
+						// 	fprintf(stderr, "\n[oss]: warning: log write terminated. closing file stream\n");
+						// 	logwrn = 1;
+						// }
+						// else if(logext == 1 && logwrn == 1)
+						// {
+						// 	if(fclosed == 0)
+						// 	{
+						// 		fclose(logout);
+						// 		fclosed = 1;
+						// 	}							
+						// }
 
 
 /* PROCESS SCHEDULER =================================================== */
@@ -180,23 +207,23 @@ void pscheduler()
 
 				clockinc(&(nextlaunched), simsecs, simnans);
 
+				pid = fork();
+				if(pid < 0)
+				{
+					perror("\noss: fork failed");
+					exit(EXIT_FAILURE);
+				}
+				if(pid == 0)
+				{
+					overlay(pid);
+				}
+
+				execap--;
+				acount++;
+
 				int seat = findaseat(); 
 				if(seat > -1)
 				{
-					pid = fork();
-					if(pid < 0)
-					{
-						perror("\noss: fork failed");
-						exit(EXIT_FAILURE);
-					}
-					if(pid == 0)
-					{
-						overlay(seat);
-					}
-
-					execap--;
-					acount++;
-
 					smseg->pctable[seat].pids = pid;
 					smseg->pctable[seat].fpid = seat;
 					/* constant for percentage of time a process is launched as real-time or 
@@ -223,7 +250,7 @@ void pscheduler()
 							fprintf(outlog, "\n[oss]: [generating process] -> [pid: %i] [local pid: %i] [queue: 0] [time: %is:%ins]", smseg->pctable[seat].pid, smseg->pctable[seat].fpid, smseg->smtime.secs, smseg->smtime.nans);
 							lcount++;
 						} else {
-							fprintf(stderr, "\n[oss]: warning: log write limit exceeded. terminating writing permissions\n");
+							fprintf(stderr, "\n[oss]: warning: log write limit exceeded. terminating write\n");
 							logext = 1;
 						}
 					}
@@ -239,13 +266,336 @@ void pscheduler()
 							fprintf(outlog, "\n[oss]: [generating process] -> [pid: %i] [local pid: %i] [queue: 1] [time: %is:%ins]", smseg->pctable[seat].pid, smseg->pctable[seat].fpid, smseg->smtime.secs, smseg->smtime.nans);
 							lcount++;
 						} else {
-							fprintf(stderr, "\n[oss]: warning: log write limit exceeded. terminating writing permissions\n");
+							fprintf(stderr, "\n[oss]: warning: log write limit exceeded. terminating write\n");
 							logext = 1;
 						}
 					}
+					
+				} else {
+					kill(pid, SIGTERM);
 				}
 			}
 		}
+
+
+		if(runnin == 1)
+		{
+			if((msglen = msgrcv(tooss, &msg, sizeof(msg), smseg->pctable[active].pid, 0)) > -1)
+			{
+				if(strcmp(msg.message, "EXPIRED") == 0)
+				{
+					msgrcv(tooss, &msg, sizeof(msg), smseg->pctable[active].pid, 0);
+
+					int percent = atoi(msg.message);
+					int servicetime;
+
+					if(smseg->pctable[active].priority == 0)
+					{
+						servicetime = (int)((double)q0servicetime * ((double)percent / (double)100));
+						/* guard against a
+					       long log file*/
+						if(lcount < 10000)
+						{
+							fprintf(outlog, "\n[oss]: [terminated] -> [pid: %i] [local pid: %i] [time: %is:%ins] [time to terminate: %ins]", smseg->pctable[active].pid, smseg->pctable[active].fpid, smseg->smtime.secs, smseg->smtime.nans, servicetime);
+							lcount++;
+						} else {
+							fprintf(stderr, "\n[oss]: warning: log write limit exceeded. terminating write\n");
+							logext = 1;
+						}
+						
+						timeinc(&(smseg->pctable[active].smcputime), servicetime);
+						timeinc(&(smseg->smtime), servicetime);
+					}
+
+					else if(smseg->pctable[active].priority == 1)
+					{
+						servicetime = (int)((double)q1servicetime * ((double)percent / (double)100));
+
+						/* guard against a
+					       long log file*/
+						if(lcount < 10000)
+						{
+							fprintf(outlog, "\n[oss]: [terminated] -> [pid: %i] [local pid: %i] [time: %is:%ins] [time to terminate: %ins]", smseg->pctable[active].pid, smseg->pctable[active].fpid, smseg->smtime.secs, smseg->smtime.nans, servicetime);
+							lcount++;
+						} else {
+							fprintf(stderr, "\n[oss]: warning: log write limit exceeded. terminating write\n");
+							logext = 1;
+						}
+						
+						timeinc(&(smseg->pctable[active].smcputime), servicetime);
+						timeinc(&(smseg->smtime), servicetime);
+					}
+
+					else if(smseg->pctable[active].priority == 2)
+					{
+						servicetime = (int)((double)q2servicetime * ((double)percent / (double)100));
+
+						/* guard against a
+					       long log file*/
+						if(lcount < 10000)
+						{
+							fprintf(outlog, "\n[oss]: [terminated] -> [pid: %i] [local pid: %i] [time: %is:%ins] [time to terminate: %ins]", smseg->pctable[active].pid, smseg->pctable[active].fpid, smseg->smtime.secs, smseg->smtime.nans, servicetime);
+							lcount++;
+						} else {
+						f	printf(stderr, "\n[oss]: warning: log write limit exceeded. terminating write\n");
+							logext = 1;
+						}
+						
+						timeinc(&(smseg->pctable[active].smcputime), servicetime);
+						timeinc(&(smseg->smtime), servicetime);						
+					}
+
+					else if(smseg->pctable[active].priority == 3)
+					{
+						servicetime = (int)((double)q3servicetime * ((double)percent / (double)100));
+						
+						/* guard against a
+					   	   long log file*/
+						if(lcount < 10000)
+						{
+							fprintf(outlog, "\n[oss]: [terminated] -> [pid: %i] [local pid: %i] [time: %is:%ins] [time to terminate: %ins]", smseg->pctable[active].pid, smseg->pctable[active].fpid, smseg->smtime.secs, smseg->smtime.nans, servicetime);
+							lcount++;
+						} else {
+							fprintf(stderr, "\n[oss]: warning: log write limit exceeded. terminating write\n");
+							logext = 1;
+						}
+
+						timeinc(&(smseg->pctable[active].smcputime), servicetime);
+						timeinc(&(smseg->smtime), servicetime);						
+					}		
+
+				runnin = 0;
+				}
+
+				if(strcmp(msg.message, "EXHAUSTED") == 0)
+				{
+					if(smseg->pctable[active].priority == 0)
+					{
+						enqueue(q0, smseg->pctable[bitvector(msg.msgtype)].fpid);
+						smseg->pctable[bitvector(msg.msgtype)].priority = 0;
+
+						timeinc(&(smseg->smtime), q0servicetime);
+
+						if(lcount < 10000)
+						{
+							fprintf(outlog, "\n[oss]: [moved between q(0) -> q(0)] -> [pid: %i] [local pid: %i] [time: %is:%ins] [time to move: %ins]", smseg->pctable[active].pid, smseg->pctable[active].fpid, smseg->smtime.secs, smseg->smtime.nans, q0servicetime);
+							lcount++;
+						} else {
+							fprintf(stderr, "\n[oss]: warning: log write limit exceeded. terminating write\n");
+							logext = 1;
+						}
+
+						timeinc(&(smseg->pctable[active].smcputime), q0servicetime);
+					}
+
+					else if(smseg->pctable[active].priority == 1)
+					{
+						enqueue(q1, smseg->pctable[bitvector(msg.msgtype)].fpid);
+						smseg->pctable[bitvector(msg.msgtype)].priority = 2;
+
+						timeinc(&(smseg->smtime), q1servicetime);
+
+						if(lcount < 10000)
+						{
+							fprintf(outlog, "\n[oss]: [moved between q(1) -> q(2)] -> [pid: %i] [local pid: %i] [time: %is:%ins] [time to move: %ins]", smseg->pctable[active].pid, smseg->pctable[active].fpid, smseg->smtime.secs, smseg->smtime.nans, q1servicetime);
+							lcount++;
+						} else {
+							fprintf(stderr, "\n[oss]: warning: log write limit exceeded. terminating write\n");
+							logext = 1;
+						}
+
+						timeinc(&(smseg->pctable[active].smcputime), q1servicetime);		
+					}
+
+					else if(smseg->pctable[active].priority == 2)
+					{
+						enqueue(q2, smseg->pctable[bitvector(msg.msgtype)].fpid);
+						smseg->pctable[bitvector(msg.msgtype)].priority = 3;
+
+						timeinc(&(smseg->smtime), q2servicetime);
+
+						if(lcount < 10000)
+						{
+							fprintf(outlog, "\n[oss]: [moved between q(2) -> q(3)] -> [pid: %i] [local pid: %i] [time: %is:%ins] [time to move: %ins]", smseg->pctable[active].pid, smseg->pctable[active].fpid, smseg->smtime.secs, smseg->smtime.nans, q2servicetime);
+							lcount++;
+						} else {
+							fprintf(stderr, "\n[oss]: warning: log write limit exceeded. terminating write\n");
+							logext = 1;
+						}
+
+						timeinc(&(smseg->pctable[active].smcputime), q2servicetime);				
+					}
+
+					else if(smseg->pctable[active].priority == 3)
+					{
+						enqueue(q3, smseg->pctable[bitvector(msg.msgtype)].fpid);
+						smseg->pctable[bitvector(msg.msgtype)].priority = 3;
+
+						timeinc(&(smseg->smtime), q3servicetime);
+
+						if(lcount < 10000)
+						{
+							fprintf(outlog, "\n[oss]: [moved between q(3) -> q(3)] -> [pid: %i] [local pid: %i] [time: %is:%ins] [time to move: %ins]", smseg->pctable[active].pid, smseg->pctable[active].fpid, smseg->smtime.secs, smseg->smtime.nans, q3servicetime);
+							lcount++;
+						} else {
+							fprintf(stderr, "\n[oss]: warning: log write limit exceeded. terminating write\n");
+							logext = 1;
+						}
+
+						timeinc(&(smseg->pctable[active].smcputime), q3servicetime);				
+					}
+				
+				runnin = 0;
+				}
+
+				if(strcmp(msg.message, "SLICED") == 0)
+				{
+					msgrcv(tooss, &msg, sizeof(msg), smseg->pctable[active].pid, 0);
+
+					int percent = atoi(msg.message);
+					int servicetime;
+
+					if(smseg->pctable[active].priority == 0)
+					{
+						servicetime = (int)((double)q0servicetime * ((double)percent / (double)100));
+
+						/* guard against a
+					   	   long log file*/
+						if(lcount < 10000)
+						{
+							fprintf(outlog, "\n[oss]: [blocked] -> [pid: %i] [local pid: %i] [time: %is:%ins] [time as blocked: %ins]", smseg->pctable[active].pid, smseg->pctable[active].fpid, smseg->smtime.secs, smseg->smtime.nans, servicetime);
+							lcount++;
+						} else {
+							fprintf(stderr, "\n[oss]: warning: log write limit exceeded. terminating write\n");
+							logext = 1;
+						}
+
+						timeinc(&(smseg->pctable[active].smcputime), servicetime);
+						timeinc(&(smseg->smtime), servicetime);						
+					}
+
+					else if(smseg->pctable[active].priority == 1)
+					{
+						servicetime = (int)((double)q1servicetime * ((double)percent / (double)100));
+						
+						/* guard against a
+					   	   long log file*/
+						if(lcount < 10000)
+						{
+							fprintf(outlog, "\n[oss]: [blocked] -> [pid: %i] [local pid: %i] [time: %is:%ins] [time as blocked: %ins]", smseg->pctable[active].pid, smseg->pctable[active].fpid, smseg->smtime.secs, smseg->smtime.nans, servicetime);
+							lcount++;
+						} else {
+							fprintf(stderr, "\n[oss]: warning: log write limit exceeded. terminating write\n");
+							logext = 1;
+						}
+
+						timeinc(&(smseg->pctable[active].smcputime), servicetime);
+						timeinc(&(smseg->smtime), servicetime);							
+					}
+
+					else if(smseg->pctable[active].priority == 2)
+					{
+						servicetime = (int)((double)q2servicetime * ((double)percent / (double)100));
+
+						/* guard against a
+					   	   long log file*/
+						if(lcount < 10000)
+						{
+							fprintf(outlog, "\n[oss]: [blocked] -> [pid: %i] [local pid: %i] [time: %is:%ins] [time as blocked: %ins]", smseg->pctable[active].pid, smseg->pctable[active].fpid, smseg->smtime.secs, smseg->smtime.nans, servicetime);
+							lcount++;
+						} else {
+							fprintf(stderr, "\n[oss]: warning: log write limit exceeded. terminating write\n");
+							logext = 1;
+						}
+
+						timeinc(&(smseg->pctable[active].smcputime), servicetime);
+						timeinc(&(smseg->smtime), servicetime);							
+					}
+
+					else if(smseg->pctable[active].priority == 3)
+					{
+						servicetime = (int)((double)q3servicetime * ((double)percent / (double)100));
+						
+						/* guard against a
+					   	   long log file*/
+						if(lcount < 10000)
+						{
+							fprintf(outlog, "\n[oss]: [blocked] -> [pid: %i] [local pid: %i] [time: %is:%ins] [time as blocked: %ins]", smseg->pctable[active].pid, smseg->pctable[active].fpid, smseg->smtime.secs, smseg->smtime.nans, servicetime);
+							lcount++;
+						} else {
+							fprintf(stderr, "\n[oss]: warning: log write limit exceeded. terminating write\n");
+							logext = 1;
+						}
+
+						timeinc(&(smseg->pctable[active].smcputime), servicetime);
+						timeinc(&(smseg->smtime), servicetime);							
+					}
+
+					runnin = 0;
+					enqueue(bqueue, smseg->pctable[bitvector(msg.msgtype)].fpid);
+				}
+			}
+
+		}
+
+
+		if(isempty(bqueue) == 0)
+		{
+			// if(runnin == 0)
+			// {
+			// 	timeinc(&(initlaunch), generate);
+			// 	timeinc(&(smseg->simtime), generate);
+			// }
+
+			int entry;
+			for(entry = 0; entry < getsize(bqueue); entry++)
+			{
+				int blockedid = dequeue(bqueue);
+				if((msglen = msgrcv(tooss, &msg, sizeof(msg), smseg->pctable[blockedid].pid, IPC_NOWAIT) > -1) && strcmp(msg.message, "FINALIZED") == 0)
+				{
+					if(smseg->pctable[blockedid].pclass == 1)
+					{
+						enqueue(q0, smseg->pctable[blockedid].fpid);
+						smseg->pctable[blockedid].priority = 0;
+					} 
+					
+					else if(smseg->pctable[blockedid].pclass == 0) 
+					{
+						enqueue(q1, smseg->pctable[blockedid].fpid);
+						smseg->pctable[blockedid].priority = 1;
+					}
+
+					/* guard against a
+					   long log file*/
+					if(lcount < 10000)
+					{
+						fprintf(outlog, "\n[oss]: [unblocked] -> [pid: %i] [local pid: %i] [time: %is:%ins]", smseg->pctable[blockedid].pid, smseg->pctable[blockedid].fpid, smseg->smtime.secs, smseg->smtime.nans);
+						lcount++;
+					} else {
+						fprintf(stderr, "\n[oss]: warning: log write limit exceeded. terminating write\n");
+						logext = 1;
+					}
+
+					int schsyscost = ((rand() % 9900) + 100);
+					timeinc(&(smseg->simtime), schsyscost);
+
+					/* guard against a
+			   		   long log file*/
+					if(lcount < 10000)
+					{
+						fprintf(outlog, "\n[oss]: [scheduler] -> [pid: %i] [local pid: %i] [total unblock time: %ins]", smseg->pctable[blockedid].pid, smseg->pctable[blockedid].fpid, schsyscost);
+						lcount++;
+					} else {
+						fprintf(stderr, "\n[oss]: warning: log write limit exceeded. terminating write\n");
+						logext = 1;
+					}
+
+				} else {
+					enqueue(bqueue, smseg->pctable[blockedid].fpid);
+				}
+			}
+		}
+
 
 		/*  level-five conditional enters if any queue (q0 to q3) is holding and no process is running */
 		if(runnin == 0 && (isempty(q0) == 0 || isempty(q1) == 0 || isempty(q2) == 0 || isempty(q3) == 0))
@@ -310,7 +660,7 @@ void pscheduler()
 				fprintf(outlog, "\n[oss]: [dispatching process] -> [pid: %i] [local pid: %i] [queue: 1] [time: %is:%ins]", smseg->pctable[active].pid, smseg->pctable[active].fpid, smseg->smtime.secs, smseg->smtime.nans);
 				lcount++;
 			} else {
-				fprintf(stderr, "\n[oss]: warning: log write limit exceeded. terminating writing permissions\n");
+				fprintf(stderr, "\n[oss]: warning: log write limit exceeded. terminating write\n");
 				logext = 1;
 			}
 
@@ -324,68 +674,29 @@ void pscheduler()
 				fprintf(outlog, "\n[oss]: [scheduler] -> [pid: %i] [local pid: %i] [total dispatch time: %ins]", smseg->pctable[active].pid, smseg->pctable[active].fpid, schsyscost);
 				lcount++;
 			} else {
-				fprintf(stderr, "\n[oss]: warning: log write limit exceeded. terminating writing permissions\n");
+				fprintf(stderr, "\n[oss]: warning: log write limit exceeded. terminating write\n");
 				logext = 1;
 			}
 
 			runnin = 1;
 		}
 
-		if(isempty(bqueue) == 0)
+		if((pid = waitpid((pid_t)-1, &status, 0)) > 0)
 		{
-			// if(runnin == 0)
-			// {
-			// 	timeinc(&(initlaunch), generate);
-			// 	timeinc(&(smseg->simtime), generate);
-			// }
-
-			int entry;
-			for(entry = 0; entry < getsize(bqueue); entry++)
+			if(WIFEXITED(status))
 			{
-				int blockedid = dequeue(bqueue);
-				if((msglen = msgrcv(tooss, &msg, sizeof(msg), smseg->pctable[blockedid].pid, IPC_NOWAIT) > -1) && strcmp(msg.message, "FINALIZED") == 0)
+				if(WEXITSTATUS(status) == 42)
 				{
-					if(smseg->pctable[blockedid].pclass == 0)
-					{
-						enqueue(q1, smseg->pctable[blockedid].fpid);
-						smseg->pctable[blockedid].priority = 1;
-					} 
+					ecount++;
+					acount--;
+
+					int pos = bitvector(pid);
 					
-					else {
-						enqueue(q0, smseg->pctable[blockedid].fpid);
-						smseg->pctable[blockedid].priority = 0;
-					}
-
-					/* guard against a
-					long log file*/
-					if(lcount < 10000)
-					{
-						fprintf(outlog, "\n[oss]: [unblocked] -> [pid: %i] [local pid: %i] [time: %is:%ins]", smseg->pctable[blockedid].pid, smseg->pctable[blockedid].fpid, smseg->smtime.secs, smseg->smtime.nans);
-						lcount++;
-					} else {
-						fprintf(stderr, "\n[oss]: warning: log write limit exceeded. terminating writing permissions\n");
-						logext = 1;
-					}
-
-					int schsyscost = ((rand() % 9900) + 100);
-					timeinc(&(smseg->simtime), schsyscost);
-
-					/* guard against a
-			   		   long log file*/
-					if(lcount < 10000)
-					{
-						fprintf(outlog, "\n[oss]: [scheduler] -> [pid: %i] [local pid: %i] [total unblock time: %ins]", smseg->pctable[blockedid].pid, smseg->pctable[blockedid].fpid, schsyscost);
-						lcount++;
-					} else {
-						fprintf(stderr, "\n[oss]: warning: log write limit exceeded. terminating writing permissions\n");
-						logext = 1;
-					}
-
-				} else {
-					enqueue(bqueue, smseg->pctable[blockedid].fpid);
 				}
 			}
 		}
+
+
 
 
 
@@ -431,6 +742,23 @@ int findaseat()
 /* END ================================================================= */
 
 
+/* INITIALIZE PCB FOR PROCESS ========================================== */
+/* ===================================================================== */
+int bitvector(int pid)
+{
+	int searcher;
+	for(searcher = 0; searcher < pcap; searcher++)
+	{
+		if(smseg->pctable[searcher].pids == pid)
+		{
+			return searcher; 
+		}
+	}
+	return -1;
+}
+/* END ================================================================= */
+
+
 /* BITMADE JANITOR ===================================================== */
 /* ===================================================================== */
 void moppingup()
@@ -446,11 +774,11 @@ void moppingup()
 
 /* OVERLAYS PROGRAM IMAGE WITH EXECV =================================== */
 /* ===================================================================== */
-void overlay(int seat)
+void overlay(int cpid)
 {
 	char proc[20]; 
 					
-	snprintf(proc, sizeof(proc), "%i", seat);	
+	snprintf(proc, sizeof(proc), "%i", cpid);	
 				
 	char* fargs[] = {"./usr", proc, NULL};
 	execv(fargs[0], fargs);
