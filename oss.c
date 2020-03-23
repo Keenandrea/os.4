@@ -60,6 +60,7 @@ void killctrl(int, siginfo_t *, void *);
 void killtime(int, siginfo_t *, void *);
 void sminit();
 void msginit();
+void pcbinit();
 void clockinit();
 void pscheduler();
 void timeinc(simclock *, int);
@@ -68,6 +69,9 @@ int bitvector(int);
 void overlay(int);
 void clockinc(simclock *, int, int);
 int uspsdispatch(int, msg *);
+void waitstats(simclock *, simclock *);
+void ltoi(simclock *, long);
+void avgtimecalc(simclock *, int);
 /* END ================================================================= */
 
 
@@ -97,6 +101,8 @@ int main(int argc, char *argv[])
 	sminit();
 
 	msginit();
+
+	pcbinit();
 
 	clockinit();
 
@@ -541,11 +547,11 @@ void pscheduler()
 
 		if(isempty(bqueue) == 0)
 		{
-			// if(runnin == 0)
-			// {
-			// 	timeinc(&(initlaunch), generate);
-			// 	timeinc(&(smseg->simtime), generate);
-			// }
+			if(runnin == 0)
+			{
+				timeinc(&(initlaunch), generate);
+				timeinc(&(smseg->simtime), generate);
+			}
 
 			int entry;
 			for(entry = 0; entry < getsize(bqueue); entry++)
@@ -691,22 +697,54 @@ void pscheduler()
 					acount--;
 
 					int pos = bitvector(pid);
-					
+					int windback = pos; 
+
+					smseg->pctable[pos].smwaittime.secs = smseg->pctable[pos].smsystime.secs;
+					smseg->pctable[pos].smwaittime.nans = smseg->pctable[pos].smsystime.nans;
+
+					waitstats(&(smseg->pctable[pos].smwaittime), &(smseg->pctable[pos].smcputime));
+					waitstats(&(smseg->pctable[pos].smwaittime), &(smseg->pctable[pos].smblktime));
+
+					ltoi(&cputimetotal), (((long)smseg->pctable[pos].smcputime.secs * (long)1000000000)) + (long)(smseg->pctable[pos].smcputime.nans));
+					ltoi(&blktimetotal), (((long)smseg->pctable[pos].smblktime.secs * (long)1000000000)) + (long)(smseg->pctable[pos].smblktime.nans));
+					ltoi(&waittimetotal), (((long)smseg->pctable[pos].smwaittime.secs * (long)1000000000)) + (long)(smseg->pctable[pos].smwaittime.nans));
+
+					if(windback > -1)
+					{
+						smseg->pctable[pos].pid = -1;
+					}
 				}
 			}
 		}
 
 
-
-
-
 		if(ecount >= 100 && execap <= 0)
 		{
+			systimetotal.secs = smseg->simtime.secs;
+			systimetotal.nans = smseg->simtime.nans;
 			break;
 		}
 	}
+	
 
+	int pcount = ecount;
+	avgtimecalc(&(waittimetotal), pcount);
+	avgtimecalc(&(cputimetotal), pcount);
+	avgtimecalc(&(blktimetotal), pcount);
+	avgtimecalc(&(initlaunch), pcount);
 
+	/* guard against a
+	   long log file*/
+	if(lcount < 997)
+	{
+		fprintf(outlog, "\n\n[report averages]:\t[average wait time]\t[average cpu utilization]\t[average time in blocked queue]\t[idle cpu time]\n");
+		fprintf(outlog, "------- --------- \t-------- ---- -----\t-------- --- ------------\t-------- ---- -- ------- ------\t----- --- -----\n");
+		fprintf(outlog, "                  \t[%is : %ins]\t[%is : %ins]\t[%is : %ins]\t[%is : %ins]\t\n\n", waittimetotal.secs, waittimetotal.nans, systimetotal.secs, systimetotal.nans, blktimetotal.secs, blktimetotal.nans, initlaunch.secs, initlaunch.nans);
+		lcount = lcount + 3;
+	} else {
+		fprintf(stderr, "\n[oss]: warning: log write limit exceeded. terminating write\n");
+		logext = 1;
+	}
 }
 /* END ================================================================= */
 
@@ -763,11 +801,11 @@ int bitvector(int pid)
 /* ===================================================================== */
 void moppingup()
 {
-	fclose(outlog);
 	shmdt(smseg);
 	shmctl(sipcid, IPC_RMID, NULL);
 	msgctl(tooss, IPC_RMID, NULL);
 	msgctl(tousr, IPC_RMID, NULL);
+	fclose(outlog);
 }
 /* END ================================================================= */
 
@@ -786,6 +824,57 @@ void overlay(int cpid)
 	/* oss will not reach here unerred */	
 	perror("\noss: error: exec failure");
 	exit(EXIT_FAILURE);	
+}
+/* END ================================================================= */
+
+
+/* CALCULATES THE AVERAGE TIMES ======================================== */
+/* ===================================================================== */
+void avgtimecalc(simclock * timetotal, int processcount)
+{
+	long avgtime = (((long)(timetotal->secs) * (long)1000000000) + (long)(timetotal->nans)) / processcount;
+
+	simclock avgstats = {0, 0};
+	ltoi(&avgstats, avgtime);
+
+	timetotal->secs = avgstats.secs;
+	timetotal->nans = avgstats.nans;
+}
+/* END ================================================================= */
+
+
+/* SOLVES INT LIMIT ==================================================== */
+/* ===================================================================== */
+void ltoi(simclock * timestat, long difference)
+{
+	long longnans = timestat->nans + dtemp;
+	while(longnans >= 1000000000)
+	{
+		longnans -= 1000000000;
+		(timestat->secs)++;
+	}
+
+	timestat->nans = (int)longnans;
+}
+/* END ================================================================= */
+
+
+/* CALCULATES WAIT TIME ================================================ */
+/* ===================================================================== */
+void waitstats(simclock * minuend, simclock * subtrahend)
+{
+	long mtemp = (minuend->secs * 1000000000) + (minuend->nans);
+	long stemp = (subtrahend->secs * 1000000000) + (subtrahend->nans);
+	long dtemp = abs(mtemp - stemp);
+
+	simclock timestats;
+	timestats.secs = 0;
+	timestats.nans = 0;
+
+	ltoi(&timestats, dtemp);
+
+	minuend->secs = timestats.secs;
+	minuend->nans = timestats.nans;
 }
 /* END ================================================================= */
 
@@ -811,6 +900,19 @@ void timeinc(simclock* khronos, int duration)
 		(khronos->secs)++;
 	}
 	khronos->nans = temp;
+}
+/* END ================================================================= */
+
+
+/* INITIATES PROCESS BLOCK FOR EASY TRACKING =========================== */
+/* ===================================================================== */
+void pcbinit()
+{
+	int setit;
+	for(setit = 0; setit < pcap; setit++)
+	{
+		smseg->pctable[setit].pid = -1;
+	}
 }
 /* END ================================================================= */
 
