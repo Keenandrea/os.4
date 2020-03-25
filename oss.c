@@ -47,6 +47,7 @@ typedef struct
 {
 	long msgtype;
 	char message[100];
+	char quantum[100];
 } msg;
 /* END ================================================================= */
 
@@ -68,7 +69,7 @@ int findaseat();
 int bitvector(int);
 void overlay(int);
 void clockinc(simclock *, int, int);
-int uspsdispatch(int, msg *);
+int uspsdispatch(int, msg *, int);
 void waitstats(simclock *, simclock *);
 void ltoi(simclock *, long);
 void avgtimecalc(simclock *, int);
