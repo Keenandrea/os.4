@@ -69,7 +69,7 @@ specify by running the command:
 And another option to specify the number of proc
 esses the machine is allowed:
 	
-	./master -n <number>
+	./oss -n <number>
 
 Keep the number between 1 and 18, to keep the ma
 chine from being overwhelmed. If these rules are
