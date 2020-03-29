@@ -38,18 +38,21 @@ int isempty(struct Queue* queue)
 
 void enqueue(struct Queue* queue, int item)
 {
-	if (isfull(queue))
+	if(isfull(queue))
+	{
 		return;
+	}
 	queue->rear = (queue->rear + 1) % queue->capacity;
 	queue->array[queue->rear] = item;
 	queue->size = queue->size + 1;
-	//printf("%d enqueued to queue\n", item);
 }
 
 int dequeue(struct Queue* queue)
 {
-	if (isempty(queue))
+	if(isempty(queue))
+	{
 		return INT_MIN;
+	}
 	int item = queue->array[queue->front];
 	queue->front = (queue->front + 1) % queue->capacity;
 	queue->size = queue->size - 1;
@@ -58,14 +61,18 @@ int dequeue(struct Queue* queue)
 
 int front(struct Queue* queue)
 {
-	if (isempty(queue))
+	if(isempty(queue))
+	{
 		return INT_MIN;
+	}
 	return queue->array[queue->front];
 }
 
 int rear(struct Queue* queue)
 {
-	if (isempty(queue))
+	if(isempty(queue))
+	{
 		return INT_MIN;
+	}
 	return queue->array[queue->rear];
 }

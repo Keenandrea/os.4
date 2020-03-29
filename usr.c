@@ -11,7 +11,7 @@
 #include <sys/msg.h>
 #include <sys/types.h>
 #include <string.h>
-#include <errrno.h>
+#include <errno.h>
 
 #include "shmem.h"
 #include "queue.h"
@@ -38,11 +38,10 @@ int pcaps = 18;
 
 /* GLOBAL MESSAGE QUEUE ================================================ */
 /* ===================================================================== */
-typedef struct 
+struct 
 {
 	long msgtype;
 	char message[100];
-	char quantum[100];
 } msg;
 /* END ================================================================= */
 
@@ -51,10 +50,6 @@ typedef struct
 /* ===================================================================== */
 void sminit();
 void msginit();
-int uspsdispatch(int, msg *, int);
-void timeinc(simclock *, int);
-int findaseat();
-int bitvector(int);
 void clockinc(simclock *, int, int);
 /* END ================================================================= */
 
@@ -73,6 +68,8 @@ int main(int argc, char *argv[])
 
     int pid = getpid();
 
+	int localpid = atoi(argv[0]);
+
     /* time(NULL) ensures a different val
        ue every second. (getpid() << 16))
        increases the odds that a differen
@@ -83,88 +80,62 @@ int main(int argc, char *argv[])
 
 	while(1)
 	{
-		msgrcv(tousr, &msg, sizeof(msg), pid, 0)
+		msgrcv(tousr, &msg, sizeof(msg), pid, 0);
 
-		/* if the process decides that it will go terminate */
-		if(((rand() % 100) <= probthatprocterminates))
+		int termproc = (rand() % 100);
+		int liveproc = (rand() % 100);	
+		int decision = rand() % 2;
+
+		/* if process decides to terminate */
+		if(termproc <= probthatprocterminates)
 		{
 			msg.msgtype = pid;
 			strcpy(msg.message, "EXPIRED");
+			msgsnd(tooss, &msg, sizeof(msg), 0);
 
-			if((uspsdispatch(tooss, &msg, sizeof(msg))) == -1)
-			{
-					perror("\nusr: error: failed to dispatch");
-					exit(EXIT_FAILURE);
-			}
+			char percent[20];
+			int randtimesliceamount = rand() % 100;
+			sprintf(percent, "%i", randtimesliceamount);
 
-			char* tspercent[20];
-			int tsamount = (rand() % 100);
-			sprintf(tspercent, "%i", tsamount);
-			msg.msgtype = pid;
+			strcpy(msg.message, percent);
+			msgsnd(tooss, &msg, sizeof(msg), 0);
 
-			strcpy(msg.message, tspercent);
-			if((uspsdispatch(tooss, &msg, sizeof(msg))) == -1)
-			{
-					perror("\nusr: error: failed to dispatch");
-					exit(EXIT_FAILURE);
-			}
-
-			exit(42);
+			return 0;
 		}
 
-		/* if process decides its not going to terminate */
-		else if(((rand() % 100) > probthatprocterminates))
+		/* process decides not
+		   to terminate and us
+		   e entire timeslice*/
+		if(decision == entire)
 		{
-			/* and to be or not to be */	
-			int decision = (rand() % 2);
-
-			if(decision == entire)
-			{
 				msg.msgtype = pid;
-				strcpy(msg.message, "EXHAUSTED");
-				
-				if((uspsdispatch(tooss, &msg, sizeof(msg))) == -1)
-				{
-					perror("\nusr: error: failed to dispatch");
-					exit(EXIT_FAILURE);
-				}
+				strcpy(msg.message, "EXHAUSTED");	
+				msgsnd(tooss, &msg, sizeof(msg), 0);
 
-			} else {
-				blockout.secs = smseg->simtime.secs;
-				blockout.nans = smseg->simtime.nans;
+		} else {
+				blockout.secs = smseg->smtime.secs;
+				blockout.nans = smseg->smtime.nans;
 
 				int r = (rand() % 3) + 1;
-				int s = (rand() % 1001) * 1000000;
+				int s = (rand() % 1000) + 1;
 				int p = (rand() % 99) + 1;
 
 				clockinc(&(blockout), r, s);
-				clockinc(&(smseg->pctable[findapid(pid)].smblktime), r, s);
-
-				char* pconv[20];
-				sprintf(pconv, "%i", p);
+				clockinc(&(smseg->pctable[localpid].smblktime), r, s);
 
 				msg.msgtype = pid;
 				strcpy(msg.message, "SLICED");
-				
-				if((uspsdispatch(tooss, &msg, sizeof(msg))) == -1)
-				{
-					perror("\nusr: error: failed to dispatch");
-					exit(EXIT_FAILURE);
-				}
+				msgsnd(tooss, &msg, sizeof(msg), 0);
 
-				msg.msgtype = pid;
+				char pconv[20];
+				sprintf(pconv, "%i", p);
+
 				strcpy(msg.message, pconv);
-				
-				if((uspsdispatch(tooss, &msg, sizeof(msg))) == -1)
-				{
-					perror("\nusr: error: failed to dispatch");
-					exit(EXIT_FAILURE);
-				}
+				msgsnd(tooss, &msg, sizeof(msg), 0);
 
-				/* spinlock */
 				while(1)
 				{
-					if((smseg->simtime.secs >= blockout.secs) && (smseg->simtime.nans >= blockout.nans))
+					if((smseg->smtime.secs > blockout.secs) || (smseg->smtime.secs == blockout.secs && smseg->smtime.nans >= blockout.nans))
 					{
 						break;
 					}
@@ -172,29 +143,11 @@ int main(int argc, char *argv[])
 
 				msg.msgtype = pid;
 				strcpy(msg.message, "FINALIZED");
-				msgsnd(toss, &msg, sizeof(msg), IPC_NOWAIT);
-			}
-
-		}
+				msgsnd(tooss, &msg, sizeof(msg), IPC_NOWAIT);
+		} 
 	}
+	shmdt(smseg);
     return 0;
-}
-/* END ================================================================= */
-
-
-/* INITIALIZE PCB FOR PROCESS ========================================== */
-/* ===================================================================== */
-int findapid(int pid)
-{
-	int searcher;
-	for(searcher = 0; searcher < pcaps; searcher++)
-	{
-		if(smseg->pctable[searcher].pids == pid)
-		{
-			return searcher; 
-		}
-	}
-	return -1;
 }
 /* END ================================================================= */
 
@@ -204,36 +157,12 @@ int findapid(int pid)
 void clockinc(simclock* khronos, int sec, int nan)
 {
 	khronos->secs = khronos->secs + sec;
-	timeinc(khronos, nan);
-}
-/* END ================================================================= */
-
-
-/* ADDS TIME BASED ON DURATION ========================================= */
-/* ===================================================================== */
-void timeinc(simclock* khronos, int duration)
-{
-	int temp = khronos->nans + duration;
-	while(temp >= 1000000000)
+	khronos->nans = khronos->nans + nan;
+	while(khronos->nans >= 1000000000)
 	{
-		temp -= 1000000000;
+		khronos->nans -= 1000000000;
 		(khronos->secs)++;
 	}
-	khronos->nans = temp;
-}
-/* END ================================================================= */
-
-
-/* SENDS MESSAGE TO OSS ================================================ */
-/* ===================================================================== */
-int uspsdispatch(int id, msg * buf, int size);
-{
-	int result;
-	if((result = msgsnd(id, buf, size, 0)) == -1)
-	{
-		return(-1);
-	}
-	return(result);
 }
 /* END ================================================================= */
 
@@ -242,7 +171,7 @@ int uspsdispatch(int id, msg * buf, int size);
 /* ===================================================================== */
 void msginit()
 {
-	key_t msgkey = ftok("msg1", 825);
+	key_t msgkey = ftok("msg1", 925);
 	if(msgkey == -1)
 	{
 		perror("\noss: error: ftok failed");
@@ -256,7 +185,7 @@ void msginit()
 		exit(EXIT_FAILURE);
 	}
 
-	msgkey = ftok("msg2", 725);
+	msgkey = ftok("msg2", 825);
 	if(msgkey == -1)
 	{
 		perror("\noss: error: ftok failed");

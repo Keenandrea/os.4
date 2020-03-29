@@ -12,6 +12,7 @@ typedef struct
     int pclass;
     int pids;
     int fpid;
+    int aged;
     int priority;
     simclock smcputime;
     simclock smsystime;
@@ -22,7 +23,7 @@ typedef struct
 typedef struct
 {
     pcblock pctable[18];
-    simclock simtime; 
+    simclock smtime; 
 } shmem;
 
 #endif /* SHMEM_H */
